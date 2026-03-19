@@ -7,17 +7,18 @@ interface Props {
 export default function HomeScreen({ navigate }: Props) {
   return (
     <div className="screen center">
-      <h1 className="title">
-        🗡️<br />Duelo de<br />Cuchillos
-      </h1>
-      <p className="subtitle">La sala decide. La arena juzga.</p>
-      <div className="btn-group">
-        <button className="btn btn-primary" onClick={() => navigate('host')}>
-          Crear Sala
-        </button>
-        <button className="btn btn-secondary" onClick={() => navigate('join')}>
-          Unirse
-        </button>
+      <div className="home-card">
+        <img src="/duelodecuchillos.png" alt="Duelo de Cuchillos" className="home-logo" />
+        <h1 className="home-title">DUELO DE CUCHILLOS</h1>
+        <p className="home-subtitle">La sala decide. La arena juzga.</p>
+        <div className="btn-group">
+          <button className="btn btn-primary btn-big" onClick={() => navigate('host')}>
+            Crear Sala
+          </button>
+          <button className="btn btn-secondary btn-big" onClick={() => navigate('join')}>
+            Unirse
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -51,6 +51,44 @@ html, body {
   text-align: center;
 }
 
+/* ── Home screen ─────────────────────────── */
+.home-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 28px 36px;
+  border: 2px solid #00e5ff;
+  box-shadow: 0 0 24px #00e5ff88, inset 0 0 40px rgba(0, 229, 255, 0.04);
+  background: rgba(7, 7, 26, 0.85);
+  width: 100%;
+  max-width: 380px;
+}
+
+.home-logo {
+  width: 180px;
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.4));
+}
+
+.home-title {
+  font-size: 20px;
+  line-height: 1.5;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 0 16px #ffffff88, 0 0 40px #8888ff55;
+  letter-spacing: 2px;
+}
+
+.home-subtitle {
+  font-size: 8px;
+  color: #00e5ff;
+  text-align: center;
+  opacity: 0.8;
+  margin-top: -4px;
+}
+
 /* ── Typography ──────────────────────────── */
 .title {
   font-size: 24px;
