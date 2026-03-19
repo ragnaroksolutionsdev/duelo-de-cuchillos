@@ -117,6 +117,13 @@ export default function App() {
           onLeave={() => { setRoom(null); setGameOver(null); setScreen('home'); }}
         />
       )}
+
+      {screen !== 'game' && (
+        <footer className="app-footer">
+          <img src="/logo2.png" alt="Ragnarok Solutions" className="footer-logo" />
+          <span className="footer-text">Desarrollado por Ragnarok Solutions</span>
+        </footer>
+      )}
     </div>
   );
 }
