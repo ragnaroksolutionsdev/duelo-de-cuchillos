@@ -15,16 +15,23 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
   const [changingTeam, setChangingTeam] = useState(false);
+  const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
   const socket = getSocket();
 
   useEffect(() => {
     function onRoomUpdate(data: RoomUpdatePayload) { setTeams(data.teams); }
     function handleGameStarted(data: { teams: TeamConfig[] }) { onGameStarted(data.teams); }
+    function handleLobbyCountdown(data: { count: number }) {
+      setLobbyCountdown(data.count);
+      setStarting(true);
+    }
     socket.on('room_update', onRoomUpdate);
     socket.on('game_started', handleGameStarted);
+    socket.on('lobby_countdown', handleLobbyCountdown);
     return () => {
       socket.off('room_update', onRoomUpdate);
       socket.off('game_started', handleGameStarted);
+      socket.off('lobby_countdown', handleLobbyCountdown);
     };
   }, []);
 
@@ -80,7 +87,30 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
   }
 
   return (
-    <div className="screen">
+    <div className="screen" style={{ position: 'relative' }}>
+      {/* Countdown overlay while host has started but balls not yet spawned */}
+      {lobbyCountdown !== null && (
+        <div className="lobby-countdown-overlay">
+          <div className="lobby-countdown-box">
+            <p className="lobby-countdown-label">
+              {lobbyCountdown > 0 ? '¡Cambia tu respuesta!' : '¡PELEA!'}
+            </p>
+            <span className="lobby-countdown-number">
+              {lobbyCountdown > 0 ? lobbyCountdown : '⚔️'}
+            </span>
+            {lobbyCountdown > 0 && myTeamIndex !== undefined && (
+              <button
+                className="btn btn-ghost"
+                style={{ marginTop: 12, fontSize: 7 }}
+                onClick={() => setChangingTeam(true)}
+              >
+                <span style={{ color: TEAM_COLORS[myTeamIndex] }}>●</span> Cambiar ahora
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="lobby-header">
         <h2 className="section-title">Sala</h2>
         <div className="room-code-badge">{room.roomCode}</div>

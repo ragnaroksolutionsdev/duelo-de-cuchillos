@@ -14,6 +14,7 @@ export interface RoomState {
   hostSocketId: string;
   hostToken: string;
   mode: 'public' | 'solo';
+  ballsPerTeam: number; // solo mode: persisted for rematch
   status: 'waiting' | 'playing' | 'finished';
   players: Player[];
   balls: Ball[];
@@ -36,11 +37,12 @@ export function createRoom(
   question: string,
   answers: string[],
   mode: 'public' | 'solo' = 'public',
+  ballsPerTeam = 5,
 ): RoomState {
   const code = generateCode();
   const hostToken = uuidv4();
   const room: RoomState = {
-    code, question, answers, hostSocketId, hostToken, mode,
+    code, question, answers, hostSocketId, hostToken, mode, ballsPerTeam,
     status: 'waiting', players: [], balls: [], tick: 0,
   };
   rooms.set(code, room);

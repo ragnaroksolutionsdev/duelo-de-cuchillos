@@ -1,13 +1,14 @@
 import { Server, Socket } from 'socket.io';
 import {
   createRoom, joinRoom, removePlayer, startGame, startSoloGame,
-  rematchRoom, getRoom, StartGameError,
+  rematchRoom, getRoom,
 } from '../game/RoomManager';
 import { startGameLoop } from '../game/GameLoop';
 import { createRoom as dbCreateRoom, updateRoomStatus } from '../db/roomRepository';
 import { TEAM_COLORS } from '../../../shared/types';
 
-const COUNTDOWN_SECS = 5;
+const LOBBY_COUNTDOWN_SECS = 5; // public: countdown in lobby so players can switch team
+const SOLO_COUNTDOWN_SECS  = 3; // solo:   countdown in game screen while Phaser loads
 
 function buildTeams(room: ReturnType<typeof getRoom>) {
   if (!room) return [];
@@ -17,16 +18,6 @@ function buildTeams(room: ReturnType<typeof getRoom>) {
     color: TEAM_COLORS[i] ?? '#FFFFFF',
     count: room.players.filter(p => p.teamIndex === i).length,
   }));
-}
-
-function runCountdown(io: Server, room: ReturnType<typeof getRoom>, onDone: () => void) {
-  if (!room) return;
-  let count = COUNTDOWN_SECS;
-  const interval = setInterval(() => {
-    io.to(room.code).emit('countdown', { count });
-    count--;
-    if (count < 0) { clearInterval(interval); onDone(); }
-  }, 1000);
 }
 
 export function registerHandlers(io: Server, socket: Socket) {
@@ -40,7 +31,9 @@ export function registerHandlers(io: Server, socket: Socket) {
   });
 
   // Create a new room (public or solo)
-  socket.on('create_room', async (data: { question: string; answers: string[]; mode?: 'public' | 'solo' }, cb) => {
+  socket.on('create_room', async (data: {
+    question: string; answers: string[]; mode?: 'public' | 'solo'; ballsPerTeam?: number
+  }, cb) => {
     try {
       if (!data.question?.trim() || !Array.isArray(data.answers) || data.answers.length < 2) {
         return cb?.({ error: 'Necesitas una pregunta y al menos 2 respuestas.' });
@@ -49,47 +42,43 @@ export function registerHandlers(io: Server, socket: Socket) {
       if (answers.length < 2) return cb?.({ error: 'Mínimo 2 respuestas.' });
 
       const mode = data.mode === 'solo' ? 'solo' : 'public';
-      const room = createRoom(socket.id, data.question.trim(), answers, mode);
+      const ballsPerTeam = typeof data.ballsPerTeam === 'number' ? data.ballsPerTeam : 5;
+      // Store ballsPerTeam in room so rematch can reuse it
+      const room = createRoom(socket.id, data.question.trim(), answers, mode, ballsPerTeam);
       socket.join(room.code);
       dbCreateRoom(room.code, room.question, room.answers).catch(console.error);
 
       if (mode === 'solo') {
-        // Auto-start immediately with fake balls
-        const ballsPerTeam = typeof (data as any).ballsPerTeam === 'number' ? (data as any).ballsPerTeam : 5;
         const started = startSoloGame(room.code, room.hostToken, ballsPerTeam);
         if (typeof started === 'string') return cb?.({ error: 'Error al iniciar.' });
 
         updateRoomStatus(room.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
 
+        // Emit game_started first so client navigates to game screen, THEN countdown
         io.to(room.code).emit('game_started', {
-          teams: buildTeams(room),
-          question: room.question,
-          answers: room.answers,
+          teams: buildTeams(room), question: room.question, answers: room.answers,
         });
 
-        runCountdown(io, room, () => startGameLoop(io, started));
+        let count = SOLO_COUNTDOWN_SECS;
+        const interval = setInterval(() => {
+          io.to(room.code).emit('countdown', { count });
+          count--;
+          if (count < 0) { clearInterval(interval); startGameLoop(io, started); }
+        }, 1000);
 
         cb?.({
-          roomCode: room.code,
-          hostToken: room.hostToken,
-          question: room.question,
-          answers: room.answers,
-          teams: buildTeams(room),
-          mode: 'solo',
-          autoStart: true,
+          roomCode: room.code, hostToken: room.hostToken,
+          question: room.question, answers: room.answers,
+          teams: buildTeams(room), mode: 'solo', autoStart: true,
         });
       } else {
         cb?.({
-          roomCode: room.code,
-          hostToken: room.hostToken,
-          question: room.question,
-          answers: room.answers,
-          teams: buildTeams(room),
-          mode: 'public',
-          autoStart: false,
+          roomCode: room.code, hostToken: room.hostToken,
+          question: room.question, answers: room.answers,
+          teams: buildTeams(room), mode: 'public', autoStart: false,
         });
       }
-    } catch (err) {
+    } catch {
       cb?.({ error: 'Error al crear la sala.' });
     }
   });
@@ -97,50 +86,52 @@ export function registerHandlers(io: Server, socket: Socket) {
   // Join an existing room
   socket.on('join_room', (data: { roomCode: string; teamIndex: number }, cb) => {
     const result = joinRoom(data.roomCode?.toUpperCase(), socket.id, data.teamIndex);
-    if (!result) {
-      return cb?.({ error: 'Sala no encontrada, llena o código inválido.' });
-    }
+    if (!result) return cb?.({ error: 'Sala no encontrada, llena o código inválido.' });
+
     const { player, room } = result;
     socket.join(room.code);
-
     io.to(room.code).emit('room_update', { teams: buildTeams(room), status: room.status });
 
     cb?.({
-      ballId: player.ballId,
-      teamIndex: player.teamIndex,
+      ballId: player.ballId, teamIndex: player.teamIndex,
       teamColor: TEAM_COLORS[player.teamIndex] ?? '#FFFFFF',
-      question: room.question,
-      answers: room.answers,
-      teams: buildTeams(room),
+      question: room.question, answers: room.answers, teams: buildTeams(room),
     });
   });
 
   // Start the game (host only, public rooms)
+  // Countdown runs in LOBBY so players can still change team before balls spawn
   socket.on('start_game', (data: { roomCode: string; hostToken: string }, cb) => {
-    const result = startGame(data.roomCode?.toUpperCase(), data.hostToken);
-    if (typeof result === 'string') {
-      const msgs: Record<StartGameError, string> = {
-        not_found:        'Sala no encontrada.',
-        bad_token:        'Token inválido — recarga la página.',
-        wrong_status:     'La sala ya está en juego o terminada.',
-        not_enough_teams: 'Necesitas al menos 1 jugador en 2 equipos distintos.',
-      };
-      return cb?.({ error: msgs[result] });
-    }
+    const room = getRoom(data.roomCode?.toUpperCase());
+    if (!room) return cb?.({ error: 'Sala no encontrada.' });
+    if (room.hostToken !== data.hostToken) return cb?.({ error: 'Token inválido — recarga la página.' });
+    if (room.status !== 'waiting') return cb?.({ error: 'La sala ya está en juego o terminada.' });
 
-    updateRoomStatus(result.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
+    const presentTeams = new Set(room.players.map(p => p.teamIndex));
+    if (presentTeams.size < 2) return cb?.({ error: 'Necesitas al menos 1 jugador en 2 equipos distintos.' });
 
-    io.to(result.code).emit('game_started', {
-      teams: buildTeams(result),
-      question: result.question,
-      answers: result.answers,
-    });
-
-    runCountdown(io, result, () => startGameLoop(io, result));
     cb?.({ ok: true });
+
+    // Countdown in lobby — status stays 'waiting', change_team still works
+    let count = LOBBY_COUNTDOWN_SECS;
+    const interval = setInterval(() => {
+      io.to(room.code).emit('lobby_countdown', { count });
+      count--;
+      if (count < 0) {
+        clearInterval(interval);
+        const result = startGame(data.roomCode!.toUpperCase(), data.hostToken);
+        if (typeof result === 'string') return; // edge case: team left during countdown
+
+        updateRoomStatus(result.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
+        io.to(result.code).emit('game_started', {
+          teams: buildTeams(result), question: result.question, answers: result.answers,
+        });
+        startGameLoop(io, result);
+      }
+    }, 1000);
   });
 
-  // Change team before game starts
+  // Change team before game starts (works during lobby countdown too)
   socket.on('change_team', (data: { roomCode: string; newTeamIndex: number }, cb) => {
     const room = getRoom(data.roomCode?.toUpperCase());
     if (!room || room.status !== 'waiting') return cb?.({ error: 'Sala no disponible.' });
@@ -154,7 +145,7 @@ export function registerHandlers(io: Server, socket: Socket) {
     cb?.({ teamIndex: data.newTeamIndex, teamColor: TEAM_COLORS[data.newTeamIndex] ?? '#FFFFFF' });
   });
 
-  // Rematch — host resets room and restarts
+  // Rematch — host resets and restarts using stored config
   socket.on('rematch', (data: { roomCode: string; hostToken: string }, cb) => {
     const room = getRoom(data.roomCode?.toUpperCase());
     if (!room || room.hostToken !== data.hostToken) return cb?.({ error: 'No autorizado.' });
@@ -163,15 +154,21 @@ export function registerHandlers(io: Server, socket: Socket) {
     if (!reset) return cb?.({ error: 'Sala no encontrada.' });
 
     if (reset.mode === 'solo') {
-      const started = startSoloGame(reset.code, data.hostToken);
+      // Use stored ballsPerTeam from original creation
+      const started = startSoloGame(reset.code, data.hostToken, reset.ballsPerTeam);
       if (typeof started === 'string') return cb?.({ error: 'Error al reiniciar.' });
 
       io.to(reset.code).emit('game_started', {
-        teams: buildTeams(reset),
-        question: reset.question,
-        answers: reset.answers,
+        teams: buildTeams(reset), question: reset.question, answers: reset.answers,
       });
-      runCountdown(io, reset, () => startGameLoop(io, started));
+
+      let count = SOLO_COUNTDOWN_SECS;
+      const interval = setInterval(() => {
+        io.to(reset.code).emit('countdown', { count });
+        count--;
+        if (count < 0) { clearInterval(interval); startGameLoop(io, started); }
+      }, 1000);
+
       io.to(reset.code).emit('room_reset', { autoStart: true });
     } else {
       io.to(reset.code).emit('room_reset', { autoStart: false });
