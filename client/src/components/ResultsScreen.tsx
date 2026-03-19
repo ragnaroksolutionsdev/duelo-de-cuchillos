@@ -4,10 +4,11 @@ import { GameOverPayload, TEAM_COLORS } from 'shared/types';
 interface Props {
   gameOver: GameOverPayload;
   room: RoomInfo;
-  onPlayAgain: () => void;
+  onRematch: () => void;
+  onLeave: () => void;
 }
 
-export default function ResultsScreen({ gameOver, room, onPlayAgain }: Props) {
+export default function ResultsScreen({ gameOver, room, onRematch, onLeave }: Props) {
   const isDraw = gameOver.winnerTeamIndex === -1;
   const winnerColor = isDraw ? '#FFD700' : TEAM_COLORS[gameOver.winnerTeamIndex] ?? '#fff';
 
@@ -22,9 +23,7 @@ export default function ResultsScreen({ gameOver, room, onPlayAgain }: Props) {
         ) : (
           <>
             <div className="result-emoji">🏆</div>
-            <h2 className="result-title" style={{ color: winnerColor }}>
-              ¡GANA!
-            </h2>
+            <h2 className="result-title" style={{ color: winnerColor }}>¡GANA!</h2>
             <div className="winner-ball-big" style={{ background: winnerColor }} />
             <p className="winner-answer">{gameOver.winnerAnswer}</p>
           </>
@@ -44,8 +43,13 @@ export default function ResultsScreen({ gameOver, room, onPlayAgain }: Props) {
 
       <p className="anon-note">🔒 Todas las respuestas son anónimas.</p>
 
-      <button className="btn btn-primary" onClick={onPlayAgain}>
-        Volver al inicio
+      {room.isHost && (
+        <button className="btn btn-primary btn-big" onClick={onRematch}>
+          ⚔️ Volver a Pelear
+        </button>
+      )}
+      <button className="btn btn-ghost" onClick={onLeave}>
+        ← Salir al inicio
       </button>
     </div>
   );

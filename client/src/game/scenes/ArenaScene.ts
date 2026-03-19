@@ -82,6 +82,7 @@ export class ArenaScene extends Phaser.Scene {
   private balls        = new Map<string, BallGfx>();
   private exitedIds    = new Set<string>();
   private bloodLayer!: Phaser.GameObjects.Graphics;
+  private ballScale    = 1; // set from first game_state based on player count
 
   private _onGameState!: (p: GameStatePayload) => void;
   private _onGameOver!:  (p: GameOverPayload)  => void;
@@ -183,8 +184,9 @@ export class ArenaScene extends Phaser.Scene {
       container.addAt(hl, 0);
     }
 
+    const finalScale = this.ballScale;
     container.setScale(0);
-    this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.Out' });
+    this.tweens.add({ targets: container, scaleX: finalScale, scaleY: finalScale, duration: 220, ease: 'Back.Out' });
 
     this.balls.set(b.id, {
       container,
@@ -264,6 +266,11 @@ export class ArenaScene extends Phaser.Scene {
   // ── Socket handlers ─────────────────────────────────────────
   private onGameState(payload: GameStatePayload) {
     if (!this.scene?.isActive('ArenaScene')) return;
+
+    // Update ball scale on first tick
+    if (payload.ballRadius) {
+      this.ballScale = payload.ballRadius / BALL_RADIUS;
+    }
 
     // Draw blood splashes + clash sound for hits this tick
     for (const hit of payload.hits ?? []) {

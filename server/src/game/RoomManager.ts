@@ -13,6 +13,7 @@ export interface RoomState {
   answers: string[];
   hostSocketId: string;
   hostToken: string;
+  mode: 'public' | 'solo';
   status: 'waiting' | 'playing' | 'finished';
   players: Player[];
   balls: Ball[];
@@ -30,19 +31,17 @@ function generateCode(): string {
   return rooms.has(code) ? generateCode() : code;
 }
 
-export function createRoom(hostSocketId: string, question: string, answers: string[]): RoomState {
+export function createRoom(
+  hostSocketId: string,
+  question: string,
+  answers: string[],
+  mode: 'public' | 'solo' = 'public',
+): RoomState {
   const code = generateCode();
   const hostToken = uuidv4();
   const room: RoomState = {
-    code,
-    question,
-    answers,
-    hostSocketId,
-    hostToken,
-    status: 'waiting',
-    players: [],
-    balls: [],
-    tick: 0,
+    code, question, answers, hostSocketId, hostToken, mode,
+    status: 'waiting', players: [], balls: [], tick: 0,
   };
   rooms.set(code, room);
   return room;
@@ -84,13 +83,11 @@ export function startGame(code: string, hostToken: string): RoomState | StartGam
   if (room.hostToken !== hostToken) return 'bad_token';
   if (room.status !== 'waiting') return 'wrong_status';
 
-  // Need at least 2 teams represented
   const teams = new Set(room.players.map(p => p.teamIndex));
   if (teams.size < 2) return 'not_enough_teams';
 
-  // Spawn balls
   const teamCount = room.answers.length;
-  room.balls = room.players.map((player, i) => {
+  room.balls = room.players.map((player) => {
     const teamOffset = (player.teamIndex / teamCount) * Math.PI * 2;
     const withinTeam = room.players
       .filter(p => p.teamIndex === player.teamIndex)
@@ -100,6 +97,39 @@ export function startGame(code: string, hostToken: string): RoomState | StartGam
   });
 
   room.status = 'playing';
+  room.tick = 0;
+  return room;
+}
+
+const SOLO_BALLS_PER_TEAM = 5;
+
+export function startSoloGame(code: string, hostToken: string): RoomState | StartGameError {
+  const room = rooms.get(code);
+  if (!room) return 'not_found';
+  if (room.hostToken !== hostToken) return 'bad_token';
+  if (room.status !== 'waiting') return 'wrong_status';
+
+  const teamCount = room.answers.length;
+  room.balls = [];
+  for (let teamIndex = 0; teamIndex < teamCount; teamIndex++) {
+    for (let j = 0; j < SOLO_BALLS_PER_TEAM; j++) {
+      const ballId = uuidv4();
+      const teamOffset = (teamIndex / teamCount) * Math.PI * 2;
+      const spread = (j / SOLO_BALLS_PER_TEAM) * Math.PI * 0.5 - 0.25;
+      room.balls.push(createBall(ballId, teamIndex, teamOffset + spread));
+    }
+  }
+
+  room.status = 'playing';
+  room.tick = 0;
+  return room;
+}
+
+export function rematchRoom(code: string): RoomState | null {
+  const room = rooms.get(code);
+  if (!room) return null;
+  room.status = 'waiting';
+  room.balls = [];
   room.tick = 0;
   return room;
 }

@@ -9,12 +9,13 @@ interface Props {
 }
 
 export default function HostScreen({ navigate, onRoomCreated }: Props) {
+  const [mode, setMode] = useState<'public' | 'solo' | null>(null);
   const [question, setQuestion] = useState('');
   const [answers, setAnswers] = useState(['', '']);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // After room creation, step 2: pick team
+  // Step 2 (public only): pick team after room creation
   const [pendingRoom, setPendingRoom] = useState<{
     roomCode: string; hostToken: string; question: string; answers: string[]; teams: TeamConfig[];
   } | null>(null);
@@ -37,16 +38,31 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
     setLoading(true);
 
     const socket = getSocket();
-    socket.emit('create_room', { question: trimmedQ, answers: trimmedA }, (res: any) => {
+    socket.emit('create_room', { question: trimmedQ, answers: trimmedA, mode }, (res: any) => {
       setLoading(false);
       if (res?.error) return setError(res.error);
-      setPendingRoom({
-        roomCode: res.roomCode,
-        hostToken: res.hostToken,
-        question: res.question,
-        answers: res.answers,
-        teams: res.teams as TeamConfig[],
-      });
+
+      if (mode === 'solo') {
+        // Auto-started: go directly to game as spectator
+        onRoomCreated({
+          roomCode: res.roomCode,
+          hostToken: res.hostToken,
+          isHost: true,
+          mode: 'solo',
+          question: res.question,
+          answers: res.answers,
+          teams: res.teams as TeamConfig[],
+        });
+      } else {
+        // Public: pick team first
+        setPendingRoom({
+          roomCode: res.roomCode,
+          hostToken: res.hostToken,
+          question: res.question,
+          answers: res.answers,
+          teams: res.teams as TeamConfig[],
+        });
+      }
     });
   }
 
@@ -61,6 +77,7 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
         roomCode: pendingRoom.roomCode,
         hostToken: pendingRoom.hostToken,
         isHost: true,
+        mode: 'public',
         question: res.question,
         answers: res.answers,
         teams: res.teams as TeamConfig[],
@@ -71,7 +88,34 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
     });
   }
 
-  // Step 2: pick team
+  // Step 0: choose mode
+  if (!mode) {
+    return (
+      <div className="screen center">
+        <button className="btn-back" onClick={() => navigate('home')}>← Volver</button>
+        <h2 className="section-title" style={{ textAlign: 'center', marginBottom: 8 }}>
+          Tipo de sala
+        </h2>
+        <p className="hint" style={{ textAlign: 'center', marginBottom: 24 }}>
+          ¿Cómo quieres jugar?
+        </p>
+        <div className="mode-grid">
+          <button className="mode-card" onClick={() => setMode('public')}>
+            <span className="mode-icon">👥</span>
+            <span className="mode-title">Pública</span>
+            <span className="mode-desc">Comparte el código y que otros voten. ¡Las respuestas pelean!</span>
+          </button>
+          <button className="mode-card" onClick={() => setMode('solo')}>
+            <span className="mode-icon">🤖</span>
+            <span className="mode-title">Individual</span>
+            <span className="mode-desc">Solo tú defines la pregunta y ves la pelea al instante.</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2 (public): pick team
   if (pendingRoom) {
     return (
       <div className="screen">
@@ -107,8 +151,12 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
   // Step 1: create room
   return (
     <div className="screen">
-      <button className="btn-back" onClick={() => navigate('home')}>← Volver</button>
-      <h2 className="section-title">Nueva Sala</h2>
+      <button className="btn-back" onClick={() => setMode(null)}>← Volver</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <h2 className="section-title">
+          {mode === 'solo' ? '🤖 Sala Individual' : '👥 Sala Pública'}
+        </h2>
+      </div>
 
       <div className="form-group">
         <label>Pregunta</label>
@@ -150,7 +198,9 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
       {error && <p className="error">{error}</p>}
 
       <button className="btn btn-primary" onClick={createRoom} disabled={loading}>
-        {loading ? 'Creando...' : 'Crear Sala →'}
+        {loading
+          ? 'Creando...'
+          : mode === 'solo' ? '⚔️ ¡Iniciar Pelea!' : 'Crear Sala →'}
       </button>
     </div>
   );

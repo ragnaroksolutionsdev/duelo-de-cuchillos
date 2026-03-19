@@ -31,6 +31,10 @@ export function startGameLoop(io: Server, room: RoomState) {
     const { balls, hits } = tick(r.balls, suddenDeath);
     r.tick++;
 
+    const ballRadius = r.tick === 1
+      ? Math.max(9, 18 - Math.floor(r.balls.length / 4))
+      : undefined;
+
     io.to(room.code).emit('game_state', {
       tick: r.tick,
       balls: balls.map(b => ({
@@ -43,6 +47,7 @@ export function startGameLoop(io: Server, room: RoomState) {
         hp: b.hp,
       })),
       hits,
+      ballRadius,
     });
 
     const winner = checkWinner(r.balls);

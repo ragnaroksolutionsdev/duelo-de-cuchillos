@@ -1,5 +1,8 @@
 import { Server, Socket } from 'socket.io';
-import { createRoom, joinRoom, removePlayer, startGame, getRoom, StartGameError } from '../game/RoomManager';
+import {
+  createRoom, joinRoom, removePlayer, startGame, startSoloGame,
+  rematchRoom, getRoom, StartGameError,
+} from '../game/RoomManager';
 import { startGameLoop } from '../game/GameLoop';
 import { createRoom as dbCreateRoom, updateRoomStatus } from '../db/roomRepository';
 import { TEAM_COLORS } from '../../../shared/types';
@@ -16,18 +19,28 @@ function buildTeams(room: ReturnType<typeof getRoom>) {
   }));
 }
 
+function runCountdown(io: Server, room: ReturnType<typeof getRoom>, onDone: () => void) {
+  if (!room) return;
+  let count = COUNTDOWN_SECS;
+  const interval = setInterval(() => {
+    io.to(room.code).emit('countdown', { count });
+    count--;
+    if (count < 0) { clearInterval(interval); onDone(); }
+  }, 1000);
+}
+
 export function registerHandlers(io: Server, socket: Socket) {
-  // Peek at room info without joining (for JoinScreen)
+  // Peek at room info without joining
   socket.on('get_room', (data: { roomCode: string }, cb) => {
     const room = getRoom(data.roomCode?.toUpperCase());
     if (!room || room.status !== 'waiting') {
       return cb?.({ error: 'Sala no encontrada o ya en juego.' });
     }
-    cb?.({ question: room.question, answers: room.answers, teams: buildTeams(room) });
+    cb?.({ question: room.question, answers: room.answers, teams: buildTeams(room), mode: room.mode });
   });
 
-  // Create a new room
-  socket.on('create_room', async (data: { question: string; answers: string[] }, cb) => {
+  // Create a new room (public or solo)
+  socket.on('create_room', async (data: { question: string; answers: string[]; mode?: 'public' | 'solo' }, cb) => {
     try {
       if (!data.question?.trim() || !Array.isArray(data.answers) || data.answers.length < 2) {
         return cb?.({ error: 'Necesitas una pregunta y al menos 2 respuestas.' });
@@ -35,17 +48,46 @@ export function registerHandlers(io: Server, socket: Socket) {
       const answers = data.answers.slice(0, 4).map(a => a.trim()).filter(Boolean);
       if (answers.length < 2) return cb?.({ error: 'Mínimo 2 respuestas.' });
 
-      const room = createRoom(socket.id, data.question.trim(), answers);
+      const mode = data.mode === 'solo' ? 'solo' : 'public';
+      const room = createRoom(socket.id, data.question.trim(), answers, mode);
       socket.join(room.code);
       dbCreateRoom(room.code, room.question, room.answers).catch(console.error);
 
-      cb?.({
-        roomCode: room.code,
-        hostToken: room.hostToken,
-        question: room.question,
-        answers: room.answers,
-        teams: buildTeams(room),
-      });
+      if (mode === 'solo') {
+        // Auto-start immediately with fake balls
+        const started = startSoloGame(room.code, room.hostToken);
+        if (typeof started === 'string') return cb?.({ error: 'Error al iniciar.' });
+
+        updateRoomStatus(room.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
+
+        io.to(room.code).emit('game_started', {
+          teams: buildTeams(room),
+          question: room.question,
+          answers: room.answers,
+        });
+
+        runCountdown(io, room, () => startGameLoop(io, started));
+
+        cb?.({
+          roomCode: room.code,
+          hostToken: room.hostToken,
+          question: room.question,
+          answers: room.answers,
+          teams: buildTeams(room),
+          mode: 'solo',
+          autoStart: true,
+        });
+      } else {
+        cb?.({
+          roomCode: room.code,
+          hostToken: room.hostToken,
+          question: room.question,
+          answers: room.answers,
+          teams: buildTeams(room),
+          mode: 'public',
+          autoStart: false,
+        });
+      }
     } catch (err) {
       cb?.({ error: 'Error al crear la sala.' });
     }
@@ -60,10 +102,7 @@ export function registerHandlers(io: Server, socket: Socket) {
     const { player, room } = result;
     socket.join(room.code);
 
-    io.to(room.code).emit('room_update', {
-      teams: buildTeams(room),
-      status: room.status,
-    });
+    io.to(room.code).emit('room_update', { teams: buildTeams(room), status: room.status });
 
     cb?.({
       ballId: player.ballId,
@@ -75,7 +114,7 @@ export function registerHandlers(io: Server, socket: Socket) {
     });
   });
 
-  // Start the game (host only) — countdown then loop
+  // Start the game (host only, public rooms)
   socket.on('start_game', (data: { roomCode: string; hostToken: string }, cb) => {
     const result = startGame(data.roomCode?.toUpperCase(), data.hostToken);
     if (typeof result === 'string') {
@@ -96,16 +135,32 @@ export function registerHandlers(io: Server, socket: Socket) {
       answers: result.answers,
     });
 
-    // Countdown before physics loop starts — gives clients time to init Phaser
-    let count = COUNTDOWN_SECS;
-    const tick = setInterval(() => {
-      io.to(result.code).emit('countdown', { count });
-      count--;
-      if (count < 0) {
-        clearInterval(tick);
-        startGameLoop(io, result);
-      }
-    }, 1000);
+    runCountdown(io, result, () => startGameLoop(io, result));
+    cb?.({ ok: true });
+  });
+
+  // Rematch — host resets room and restarts
+  socket.on('rematch', (data: { roomCode: string; hostToken: string }, cb) => {
+    const room = getRoom(data.roomCode?.toUpperCase());
+    if (!room || room.hostToken !== data.hostToken) return cb?.({ error: 'No autorizado.' });
+
+    const reset = rematchRoom(room.code);
+    if (!reset) return cb?.({ error: 'Sala no encontrada.' });
+
+    if (reset.mode === 'solo') {
+      const started = startSoloGame(reset.code, data.hostToken);
+      if (typeof started === 'string') return cb?.({ error: 'Error al reiniciar.' });
+
+      io.to(reset.code).emit('game_started', {
+        teams: buildTeams(reset),
+        question: reset.question,
+        answers: reset.answers,
+      });
+      runCountdown(io, reset, () => startGameLoop(io, started));
+      io.to(reset.code).emit('room_reset', { autoStart: true });
+    } else {
+      io.to(reset.code).emit('room_reset', { autoStart: false });
+    }
 
     cb?.({ ok: true });
   });
@@ -116,10 +171,7 @@ export function registerHandlers(io: Server, socket: Socket) {
     if (result) {
       const { room } = result;
       if (room.status === 'waiting') {
-        io.to(room.code).emit('room_update', {
-          teams: buildTeams(room),
-          status: room.status,
-        });
+        io.to(room.code).emit('room_update', { teams: buildTeams(room), status: room.status });
       }
     }
   });
