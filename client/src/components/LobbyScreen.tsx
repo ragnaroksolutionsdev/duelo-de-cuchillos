@@ -11,17 +11,15 @@ interface Props {
 
 export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
   const [teams, setTeams] = useState<TeamConfig[]>(room.teams);
+  const [myTeamIndex, setMyTeamIndex] = useState<number | undefined>(room.teamIndex);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [changingTeam, setChangingTeam] = useState(false);
   const socket = getSocket();
 
   useEffect(() => {
-    function onRoomUpdate(data: RoomUpdatePayload) {
-      setTeams(data.teams);
-    }
-    function handleGameStarted(data: { teams: TeamConfig[] }) {
-      onGameStarted(data.teams);
-    }
+    function onRoomUpdate(data: RoomUpdatePayload) { setTeams(data.teams); }
+    function handleGameStarted(data: { teams: TeamConfig[] }) { onGameStarted(data.teams); }
     socket.on('room_update', onRoomUpdate);
     socket.on('game_started', handleGameStarted);
     return () => {
@@ -42,7 +40,44 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
     });
   }
 
+  function switchTeam(newTeamIndex: number) {
+    socket.emit('change_team', { roomCode: room.roomCode, newTeamIndex }, (res: any) => {
+      if (res?.error) return setError(res.error);
+      setMyTeamIndex(res.teamIndex);
+      setChangingTeam(false);
+    });
+  }
+
   const totalPlayers = teams.reduce((sum, t) => sum + t.count, 0);
+  const myColor = myTeamIndex !== undefined ? TEAM_COLORS[myTeamIndex] : undefined;
+
+  // Show team picker overlay
+  if (changingTeam) {
+    return (
+      <div className="screen">
+        <button className="btn-back" onClick={() => setChangingTeam(false)}>← Volver</button>
+        <h2 className="section-title">Cambiar respuesta</h2>
+        <div className="question-box">
+          <p className="question-label">La pregunta:</p>
+          <p className="question-text">{room.question}</p>
+        </div>
+        <div className="team-grid">
+          {room.answers.map((answer, i) => (
+            <button
+              key={i}
+              className={`btn btn-team${myTeamIndex === i ? ' selected' : ''}`}
+              style={{ '--team-color': TEAM_COLORS[i] } as React.CSSProperties}
+              onClick={() => switchTeam(i)}
+            >
+              <span className="team-ball" style={{ background: TEAM_COLORS[i] }} />
+              {answer}
+              {myTeamIndex === i && <span style={{ fontSize: 7, opacity: 0.8 }}>✓ actual</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="screen">
@@ -65,13 +100,20 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
               <span className="team-dot" style={{ background: TEAM_COLORS[i] }} />
               <span className="team-answer">{answer}</span>
               <span className="team-count">{count} 🗡️</span>
-              {room.teamIndex === i && <span className="you-badge">TÚ</span>}
+              {myTeamIndex === i && <span className="you-badge">TÚ</span>}
             </div>
           );
         })}
       </div>
 
       <p className="player-count">{totalPlayers} jugador{totalPlayers !== 1 ? 'es' : ''} conectado{totalPlayers !== 1 ? 's' : ''}</p>
+
+      {/* Change team button (non-hosts and non-solo) */}
+      {myTeamIndex !== undefined && (
+        <button className="btn btn-ghost" onClick={() => setChangingTeam(true)}>
+          <span style={{ color: myColor }}>●</span> Cambiar respuesta
+        </button>
+      )}
 
       {room.isHost ? (
         <>

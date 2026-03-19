@@ -12,6 +12,7 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
   const [mode, setMode] = useState<'public' | 'solo' | null>(null);
   const [question, setQuestion] = useState('');
   const [answers, setAnswers] = useState(['', '']);
+  const [ballsPerTeam, setBallsPerTeam] = useState(5);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -38,7 +39,7 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
     setLoading(true);
 
     const socket = getSocket();
-    socket.emit('create_room', { question: trimmedQ, answers: trimmedA, mode }, (res: any) => {
+    socket.emit('create_room', { question: trimmedQ, answers: trimmedA, mode, ballsPerTeam }, (res: any) => {
       setLoading(false);
       if (res?.error) return setError(res.error);
 
@@ -194,6 +195,20 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
           <button className="btn btn-ghost" onClick={addAnswer}>+ Agregar respuesta</button>
         )}
       </div>
+
+      {mode === 'solo' && (
+        <div className="form-group">
+          <label>Bolitas por respuesta: <strong style={{ color: '#00e5ff' }}>{ballsPerTeam}</strong></label>
+          <input
+            type="range"
+            min={1} max={15} step={1}
+            value={ballsPerTeam}
+            onChange={e => setBallsPerTeam(Number(e.target.value))}
+            className="balls-slider"
+          />
+          <p className="hint">1 = duelo íntimo · 15 = caos total</p>
+        </div>
+      )}
 
       {error && <p className="error">{error}</p>}
 

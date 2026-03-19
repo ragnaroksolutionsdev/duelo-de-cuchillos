@@ -101,21 +101,20 @@ export function startGame(code: string, hostToken: string): RoomState | StartGam
   return room;
 }
 
-const SOLO_BALLS_PER_TEAM = 5;
-
-export function startSoloGame(code: string, hostToken: string): RoomState | StartGameError {
+export function startSoloGame(code: string, hostToken: string, ballsPerTeam = 5): RoomState | StartGameError {
   const room = rooms.get(code);
   if (!room) return 'not_found';
   if (room.hostToken !== hostToken) return 'bad_token';
   if (room.status !== 'waiting') return 'wrong_status';
 
+  const count = Math.max(1, Math.min(15, ballsPerTeam));
   const teamCount = room.answers.length;
   room.balls = [];
   for (let teamIndex = 0; teamIndex < teamCount; teamIndex++) {
-    for (let j = 0; j < SOLO_BALLS_PER_TEAM; j++) {
+    for (let j = 0; j < count; j++) {
       const ballId = uuidv4();
       const teamOffset = (teamIndex / teamCount) * Math.PI * 2;
-      const spread = (j / SOLO_BALLS_PER_TEAM) * Math.PI * 0.5 - 0.25;
+      const spread = (j / count) * Math.PI * 0.5 - 0.25;
       room.balls.push(createBall(ballId, teamIndex, teamOffset + spread));
     }
   }

@@ -11,7 +11,7 @@ export default function HomeScreen({ navigate }: Props) {
         <img src="/duelodecuchillos.png" alt="Duelo de Cuchillos" className="home-logo" />
         <h1 className="home-title">DUELO DE CUCHILLOS</h1>
         <p className="home-subtitle">La sala decide. La arena juzga.</p>
-        <div className="btn-group">
+        <div className="btn-group" style={{ maxWidth: '100%', width: '100%' }}>
           <button className="btn btn-primary btn-big" onClick={() => navigate('host')}>
             Crear Sala
           </button>

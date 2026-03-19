@@ -7,7 +7,7 @@ import { startGameLoop } from '../game/GameLoop';
 import { createRoom as dbCreateRoom, updateRoomStatus } from '../db/roomRepository';
 import { TEAM_COLORS } from '../../../shared/types';
 
-const COUNTDOWN_SECS = 3;
+const COUNTDOWN_SECS = 5;
 
 function buildTeams(room: ReturnType<typeof getRoom>) {
   if (!room) return [];
@@ -55,7 +55,8 @@ export function registerHandlers(io: Server, socket: Socket) {
 
       if (mode === 'solo') {
         // Auto-start immediately with fake balls
-        const started = startSoloGame(room.code, room.hostToken);
+        const ballsPerTeam = typeof (data as any).ballsPerTeam === 'number' ? (data as any).ballsPerTeam : 5;
+        const started = startSoloGame(room.code, room.hostToken, ballsPerTeam);
         if (typeof started === 'string') return cb?.({ error: 'Error al iniciar.' });
 
         updateRoomStatus(room.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
@@ -137,6 +138,20 @@ export function registerHandlers(io: Server, socket: Socket) {
 
     runCountdown(io, result, () => startGameLoop(io, result));
     cb?.({ ok: true });
+  });
+
+  // Change team before game starts
+  socket.on('change_team', (data: { roomCode: string; newTeamIndex: number }, cb) => {
+    const room = getRoom(data.roomCode?.toUpperCase());
+    if (!room || room.status !== 'waiting') return cb?.({ error: 'Sala no disponible.' });
+    if (data.newTeamIndex < 0 || data.newTeamIndex >= room.answers.length) return cb?.({ error: 'Equipo inválido.' });
+
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return cb?.({ error: 'No estás en esta sala.' });
+
+    player.teamIndex = data.newTeamIndex;
+    io.to(room.code).emit('room_update', { teams: buildTeams(room), status: room.status });
+    cb?.({ teamIndex: data.newTeamIndex, teamColor: TEAM_COLORS[data.newTeamIndex] ?? '#FFFFFF' });
   });
 
   // Rematch — host resets room and restarts
