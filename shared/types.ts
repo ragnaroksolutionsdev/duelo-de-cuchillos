@@ -29,8 +29,9 @@ export interface RoomConfig {
 export interface GameStatePayload {
   tick: number;
   balls: BallState[];
-  hits: HitEvent[];  // blood splash positions
-  ballRadius?: number; // only sent on tick 1, scales with player count
+  hits: HitEvent[];
+  ballRadius?: number;  // sent on tick 1
+  ringRadius?: number;  // sent when ring is shrinking (sudden death)
 }
 
 export interface GameOverPayload {

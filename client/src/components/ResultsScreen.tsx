@@ -1,5 +1,6 @@
 import { RoomInfo } from '../App';
 import { GameOverPayload, TEAM_COLORS } from 'shared/types';
+import AdBanner from './AdBanner';
 
 interface Props {
   gameOver: GameOverPayload;
@@ -42,6 +43,8 @@ export default function ResultsScreen({ gameOver, room, onRematch, onLeave }: Pr
       </div>
 
       <p className="anon-note">🔒 Todas las respuestas son anónimas.</p>
+
+      <AdBanner slot="results-mid" />
 
       {room.isHost && (
         <button className="btn btn-primary btn-big" onClick={onRematch}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getSocket } from '../lib/socket';
 import { Screen, RoomInfo } from '../App';
 import { TeamConfig, TEAM_COLORS, RoomUpdatePayload } from 'shared/types';
+import ShareModal from './ShareModal';
 
 interface Props {
   room: RoomInfo;
@@ -16,6 +17,7 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
   const [starting, setStarting] = useState(false);
   const [changingTeam, setChangingTeam] = useState(false);
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
+  const [showShare, setShowShare] = useState(false);
   const socket = getSocket();
 
   useEffect(() => {
@@ -25,13 +27,20 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
       setLobbyCountdown(data.count);
       setStarting(true);
     }
+    function handleLobbyReset() {
+      setLobbyCountdown(null);
+      setStarting(false);
+      setError('Un jugador se fue. Vuelve a iniciar la pelea.');
+    }
     socket.on('room_update', onRoomUpdate);
     socket.on('game_started', handleGameStarted);
     socket.on('lobby_countdown', handleLobbyCountdown);
+    socket.on('lobby_reset', handleLobbyReset);
     return () => {
       socket.off('room_update', onRoomUpdate);
       socket.off('game_started', handleGameStarted);
       socket.off('lobby_countdown', handleLobbyCountdown);
+      socket.off('lobby_reset', handleLobbyReset);
     };
   }, []);
 
@@ -93,7 +102,7 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
         <div className="lobby-countdown-overlay">
           <div className="lobby-countdown-box">
             <p className="lobby-countdown-label">
-              {lobbyCountdown > 0 ? '¡Cambia tu respuesta!' : '¡PELEA!'}
+              {lobbyCountdown > 0 ? `Empezando en...` : '¡PELEA!'}
             </p>
             <span className="lobby-countdown-number">
               {lobbyCountdown > 0 ? lobbyCountdown : '⚔️'}
@@ -110,6 +119,8 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
           </div>
         </div>
       )}
+
+      {showShare && <ShareModal roomCode={room.roomCode} onClose={() => setShowShare(false)} />}
 
       <div className="lobby-header">
         <h2 className="section-title">Sala</h2>
@@ -145,13 +156,16 @@ export default function LobbyScreen({ room, navigate, onGameStarted }: Props) {
         </button>
       )}
 
+      <button className="btn btn-ghost" onClick={() => setShowShare(true)}>
+        🔗 Compartir sala
+      </button>
+
       {room.isHost ? (
         <>
           {error && <p className="error">{error}</p>}
           <button className="btn btn-primary btn-big" onClick={startGame} disabled={starting}>
             {starting ? 'Iniciando...' : '⚔️ ¡Iniciar Pelea!'}
           </button>
-          <p className="hint">Comparte el código <strong>{room.roomCode}</strong> con los jugadores.</p>
         </>
       ) : (
         <p className="waiting-msg">Esperando que el host inicie la pelea...</p>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getSocket } from '../lib/socket';
 import { Screen, RoomInfo } from '../App';
 import { TeamConfig, TEAM_COLORS } from 'shared/types';
@@ -6,6 +6,7 @@ import { TeamConfig, TEAM_COLORS } from 'shared/types';
 interface Props {
   navigate: (s: Screen) => void;
   onJoined: (info: RoomInfo) => void;
+  initialCode?: string;
 }
 
 interface RoomPreview {
@@ -14,11 +15,15 @@ interface RoomPreview {
   teams: TeamConfig[];
 }
 
-export default function JoinScreen({ navigate, onJoined }: Props) {
-  const [code, setCode] = useState('');
+export default function JoinScreen({ navigate, onJoined, initialCode }: Props) {
+  const [code, setCode] = useState(initialCode ?? '');
   const [preview, setPreview] = useState<RoomPreview | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialCode && initialCode.length === 4) searchRoom();
+  }, []);
 
   function searchRoom() {
     const trimCode = code.trim().toUpperCase();

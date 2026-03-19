@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { getSocket } from '../lib/socket';
 import { Screen, RoomInfo } from '../App';
 import { TeamConfig, TEAM_COLORS } from 'shared/types';
+import ShareModal from './ShareModal';
 
 interface Props {
   navigate: (s: Screen) => void;
@@ -15,6 +16,8 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
   const [ballsPerTeam, setBallsPerTeam] = useState(5);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const [showShare, setShowShare] = useState(false);
 
   // Step 2 (public only): pick team after room creation
   const [pendingRoom, setPendingRoom] = useState<{
@@ -120,6 +123,7 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
   if (pendingRoom) {
     return (
       <div className="screen">
+        {showShare && <ShareModal roomCode={pendingRoom.roomCode} onClose={() => setShowShare(false)} />}
         <div className="lobby-header">
           <h2 className="section-title">Tu bando</h2>
           <div className="room-code-badge">{pendingRoom.roomCode}</div>
@@ -128,6 +132,9 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
           <p className="question-label">La pregunta:</p>
           <p className="question-text">{pendingRoom.question}</p>
         </div>
+        <button className="btn btn-ghost" onClick={() => setShowShare(true)}>
+          🔗 Compartir sala
+        </button>
         <p className="team-select-label">¿Qué eliges tú?</p>
         <div className="team-grid">
           {pendingRoom.answers.map((answer, i) => (
@@ -144,7 +151,6 @@ export default function HostScreen({ navigate, onRoomCreated }: Props) {
           ))}
         </div>
         {error && <p className="error">{error}</p>}
-        <p className="hint">Comparte el código <strong>{pendingRoom.roomCode}</strong> con los demás.</p>
       </div>
     );
   }

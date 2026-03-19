@@ -1,4 +1,5 @@
 import { Screen } from '../App';
+import AdBanner from './AdBanner';
 
 interface Props {
   navigate: (s: Screen) => void;
@@ -7,6 +8,7 @@ interface Props {
 export default function HomeScreen({ navigate }: Props) {
   return (
     <div className="screen center">
+      <AdBanner slot="home-top" />
       <div className="home-card">
         <img src="/duelodecuchillos.png" alt="Duelo de Cuchillos" className="home-logo" />
         <h1 className="home-title">DUELO DE CUCHILLOS</h1>

@@ -120,7 +120,11 @@ export function registerHandlers(io: Server, socket: Socket) {
       if (count < 0) {
         clearInterval(interval);
         const result = startGame(data.roomCode!.toUpperCase(), data.hostToken);
-        if (typeof result === 'string') return; // edge case: team left during countdown
+        if (typeof result === 'string') {
+          // A player left during countdown — tell lobby to reset
+          io.to(room.code).emit('lobby_reset', { error: result });
+          return;
+        }
 
         updateRoomStatus(result.code, 'playing', { started_at: new Date().toISOString() }).catch(console.error);
         io.to(result.code).emit('game_started', {

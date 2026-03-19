@@ -62,7 +62,7 @@ export function createBall(id: string, teamIndex: number, spawnAngle: number): B
   };
 }
 
-export function tick(balls: Ball[], suddenDeath = false): TickResult {
+export function tick(balls: Ball[], suddenDeathLevel = 0, ringRadius: number = RADIUS): TickResult {
   const alive = balls.filter(b => b.alive);
   const hits: HitEvent[] = [];
 
@@ -71,10 +71,11 @@ export function tick(balls: Ball[], suddenDeath = false): TickResult {
     if (b.hitCooldown > 0) b.hitCooldown--;
   }
 
-  // 1. Seek + wander (per-ball random stats)
+  // 1. Seek + wander — each level adds +1 multiplier to force and speed
   for (const b of alive) {
-    const seekForce   = b.stats.seekForce   * (suddenDeath ? 4 : 1);
-    const cruiseSpeed = b.stats.cruiseSpeed * (suddenDeath ? 3 : 1);
+    const mult        = 1 + suddenDeathLevel;
+    const seekForce   = b.stats.seekForce   * mult;
+    const cruiseSpeed = b.stats.cruiseSpeed * mult;
     const spd = Math.hypot(b.vx, b.vy);
 
     // Wander: small random nudge every tick — prevents axis-locking
@@ -118,14 +119,15 @@ export function tick(balls: Ball[], suddenDeath = false): TickResult {
     const dy   = b.y - CY;
     const dist = Math.hypot(dx, dy);
 
-    // Exit ring → ball is eliminated
-    if (dist > EXIT_DIST) {
+    // Exit ring → ball is eliminated (use dynamic ring + fixed exit buffer)
+    const exitDist = ringRadius + 60;
+    if (dist > exitDist) {
       b.alive = false;
       continue;
     }
 
     // Boundary bounce — only if HP > 0; hp=0 → exits immediately
-    const maxDist = RADIUS - BALL_RADIUS;
+    const maxDist = ringRadius - BALL_RADIUS;
     if (dist > maxDist) {
       if (b.hp > 0) {
         const nx  = dx / dist;
@@ -187,18 +189,16 @@ export function tick(balls: Ball[], suddenDeath = false): TickResult {
       } else {
         // Enemy: knockback + damage
         if (a.hitCooldown === 0 && b.hitCooldown === 0) {
-          // Independent random knockback per ball — no shared angle
-          // Each ball flies off in its repulsion direction ± large random tangent
-          // so they never oscillate back to the same axis
           const baseA = Math.atan2(-ny, -nx);
           const baseB = Math.atan2( ny,  nx);
 
-          // ±90° tangential spread gives chaotic, non-oscillating exits
           const spreadA = (Math.random() - 0.5) * Math.PI * 0.9;
           const spreadB = (Math.random() - 0.5) * Math.PI * 0.9;
 
-          const kbA = rnd(3.5, 7.0) / a.stats.mass; // lighter = faster exit
-          const kbB = rnd(3.5, 7.0) / b.stats.mass;
+          // Knockback scales with sudden death level — more chaos each level
+          const kbMult = 1 + suddenDeathLevel * 1.2;
+          const kbA = rnd(3.5, 7.0) * kbMult / a.stats.mass;
+          const kbB = rnd(3.5, 7.0) * kbMult / b.stats.mass;
 
           a.vx = Math.cos(baseA + spreadA) * kbA;
           a.vy = Math.sin(baseA + spreadA) * kbA;
@@ -207,8 +207,11 @@ export function tick(balls: Ball[], suddenDeath = false): TickResult {
 
           a.hp = Math.max(0, a.hp - 1);
           b.hp = Math.max(0, b.hp - 1);
-          a.hitCooldown = 10;
-          b.hitCooldown = 10;
+
+          // Hit cooldown shrinks with each level so collisions chain faster
+          const cooldown = Math.max(3, 10 - suddenDeathLevel * 2);
+          a.hitCooldown = cooldown;
+          b.hitCooldown = cooldown;
 
           hits.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
         }
@@ -221,8 +224,27 @@ export function tick(balls: Ball[], suddenDeath = false): TickResult {
 
 export function checkWinner(balls: Ball[]): number | null {
   const alive = balls.filter(b => b.alive);
-  if (alive.length === 0) return -1;
-  const first = alive[0].teamIndex;
-  if (alive.every(b => b.teamIndex === first)) return first;
-  return null;
+
+  // Still fighting
+  if (alive.length > 0) {
+    const first = alive[0].teamIndex;
+    return alive.every(b => b.teamIndex === first) ? first : null;
+  }
+
+  // All exited ring on the same tick — pick the team with the highest remaining HP
+  // (they were tougher in the final hit) — if tied, random
+  const dead = balls.filter(b => !b.alive);
+  if (dead.length === 0) return -1;
+
+  let bestHp = -1;
+  let winner = -1;
+  const teamBestHp: Record<number, number> = {};
+  for (const b of dead) {
+    if ((teamBestHp[b.teamIndex] ?? -1) < b.hp) teamBestHp[b.teamIndex] = b.hp;
+  }
+  for (const [team, hp] of Object.entries(teamBestHp)) {
+    if (hp > bestHp) { bestHp = hp; winner = Number(team); }
+    else if (hp === bestHp) winner = Math.random() < 0.5 ? Number(team) : winner;
+  }
+  return winner;
 }

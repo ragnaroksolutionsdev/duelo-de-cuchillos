@@ -11,8 +11,8 @@ interface Props {
 }
 
 export default function GameScreen({ room, onGameOver }: Props) {
-  const [countdown, setCountdown] = useState<number | null>(3);
-  const [suddenDeath, setSuddenDeath] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [suddenDeathLevel, setSuddenDeathLevel] = useState(0);
   const socket = getSocket();
 
   useEffect(() => {
@@ -27,8 +27,8 @@ export default function GameScreen({ room, onGameOver }: Props) {
       // Wait 4s so users can see the winning animation in the arena
       setTimeout(() => onGameOver(payload), 4000);
     }
-    function handleSuddenDeath() {
-      setSuddenDeath(true);
+    function handleSuddenDeath(data: { level: number }) {
+      setSuddenDeathLevel(data.level);
       playBeep(220, 0.4);
       setTimeout(() => playBeep(220, 0.4), 200);
       setTimeout(() => playBeep(160, 0.5), 400);
@@ -69,10 +69,10 @@ export default function GameScreen({ room, onGameOver }: Props) {
         )}
       </div>
 
-      {/* Sudden death banner */}
-      {suddenDeath && (
+      {/* Sudden death banner — shows level */}
+      {suddenDeathLevel > 0 && (
         <div className="sudden-death-banner">
-          ⚡ MUERTE SÚBITA ⚡
+          ⚡ MUERTE SÚBITA — NIVEL {suddenDeathLevel} ⚡
         </div>
       )}
 

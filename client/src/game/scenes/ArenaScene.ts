@@ -82,7 +82,11 @@ export class ArenaScene extends Phaser.Scene {
   private balls        = new Map<string, BallGfx>();
   private exitedIds    = new Set<string>();
   private bloodLayer!: Phaser.GameObjects.Graphics;
-  private ballScale    = 1; // set from first game_state based on player count
+  private ringGfx!:    Phaser.GameObjects.Graphics;
+  private ballScale    = 1;
+  private currentRingRadius: number = RADIUS;
+  private targetRingRadius: number  = RADIUS;
+  private suddenDeathLevel  = 0;
 
   private _onGameState!: (p: GameStatePayload) => void;
   private _onGameOver!:  (p: GameOverPayload)  => void;
@@ -94,40 +98,68 @@ export class ArenaScene extends Phaser.Scene {
     this.teamColors = this.registry.get('teamColors');
     this.myBallId   = this.registry.get('myBallId') ?? '';
 
-    this.drawArena();
-    this.bloodLayer = this.add.graphics(); // persistent blood on top of ring
+    this.ringGfx    = this.add.graphics();
+    this.bloodLayer = this.add.graphics();
+    this.drawRing(RADIUS, 0);
 
-    this._onGameState = (p) => this.onGameState(p);
-    this._onGameOver  = (p) => this.onGameOver(p);
+    this._onGameState   = (p) => this.onGameState(p);
+    this._onGameOver    = (p) => this.onGameOver(p);
+    this._onSuddenDeath = (d: { level: number }) => {
+      this.suddenDeathLevel = d.level;
+    };
 
-    this.socket.on('game_state', this._onGameState);
-    this.socket.on('game_over',  this._onGameOver);
+    this.socket.on('game_state',   this._onGameState);
+    this.socket.on('game_over',    this._onGameOver);
+    this.socket.on('sudden_death', this._onSuddenDeath);
 
     this.events.once('shutdown', this._removeListeners, this);
     this.events.once('destroy',  this._removeListeners, this);
   }
 
+  private _onSuddenDeath!: (d: { level: number }) => void;
+
   private _removeListeners() {
-    this.socket?.off('game_state', this._onGameState);
-    this.socket?.off('game_over',  this._onGameOver);
+    this.socket?.off('game_state',   this._onGameState);
+    this.socket?.off('game_over',    this._onGameOver);
+    this.socket?.off('sudden_death', this._onSuddenDeath);
   }
 
-  // ── Arena ring ──────────────────────────────────────────────
-  private drawArena() {
-    const g = this.add.graphics();
+  // ── Arena ring (only redrawn when radius/level changes) ──────
+  private drawRing(r: number, level: number) {
+    const g = this.ringGfx;
+    g.clear();
+
+    // Ring floor
     g.fillStyle(0x0d0d2b, 1);
-    g.fillCircle(CX, CY, RADIUS);
-    g.lineStyle(4, 0xffffff, 0.9);
-    g.strokeCircle(CX, CY, RADIUS);
-    g.lineStyle(2, 0x334477, 0.6);
+    g.fillCircle(CX, CY, r);
+
+    // Border — red during sudden death
+    const borderColor = level > 0 ? 0xff2222 : 0xffffff;
+    g.lineStyle(4, borderColor, 0.9);
+    g.strokeCircle(CX, CY, r);
+
+    // Tick marks
+    g.lineStyle(2, level > 0 ? 0x773333 : 0x334477, 0.6);
     for (let deg = 0; deg < 360; deg += 15) {
       const rad = Phaser.Math.DegToRad(deg);
-      g.lineBetween(CX + Math.cos(rad) * (RADIUS - 14), CY + Math.sin(rad) * (RADIUS - 14),
-                    CX + Math.cos(rad) * (RADIUS -  4), CY + Math.sin(rad) * (RADIUS -  4));
+      g.lineBetween(CX + Math.cos(rad) * (r - 14), CY + Math.sin(rad) * (r - 14),
+                    CX + Math.cos(rad) * (r -  4), CY + Math.sin(rad) * (r -  4));
     }
     g.lineStyle(1, 0x334466, 0.4);
     g.lineBetween(CX - 20, CY, CX + 20, CY);
     g.lineBetween(CX, CY - 20, CX, CY + 20);
+  }
+
+  // Animate ring to a new radius using a Phaser tween (runs once, no per-frame redraw)
+  private animateRingTo(targetR: number, level: number) {
+    this.tweens.killTweensOf(this);
+    this.tweens.add({
+      targets: this,
+      currentRingRadius: targetR,
+      duration: 4000,
+      ease: 'Linear',
+      onUpdate: () => this.drawRing(Math.round(this.currentRingRadius), level),
+    });
   }
 
   // ── Blood splash ────────────────────────────────────────────
@@ -267,9 +299,15 @@ export class ArenaScene extends Phaser.Scene {
   private onGameState(payload: GameStatePayload) {
     if (!this.scene?.isActive('ArenaScene')) return;
 
-    // Update ball scale on first tick
+    // Ball scale (first tick)
     if (payload.ballRadius) {
       this.ballScale = payload.ballRadius / BALL_RADIUS;
+    }
+
+    // Ring shrink (sudden death) — only trigger tween on new target
+    if (payload.ringRadius && payload.ringRadius !== this.targetRingRadius) {
+      this.targetRingRadius = payload.ringRadius;
+      this.animateRingTo(payload.ringRadius, this.suddenDeathLevel);
     }
 
     // Draw blood splashes + clash sound for hits this tick
@@ -338,6 +376,7 @@ export class ArenaScene extends Phaser.Scene {
 
   // ── Phaser update ────────────────────────────────────────────
   update() {
+    // Lerp ball positions
     for (const [, gfx] of this.balls) {
       if (!gfx.alive) continue;
       const c = gfx.container;
@@ -346,6 +385,7 @@ export class ArenaScene extends Phaser.Scene {
       const dRot = gfx.target.heading - c.rotation;
       c.rotation += Math.atan2(Math.sin(dRot), Math.cos(dRot)) * LERP;
     }
+
   }
 
   destroy() { this._removeListeners(); }
